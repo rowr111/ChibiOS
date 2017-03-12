@@ -41,6 +41,7 @@
 #define EXT_CH_MODE_FALLING_EDGE    2U  /**< @brief Falling edge callback.  */
 #define EXT_CH_MODE_BOTH_EDGES      3U  /**< @brief Both edges callback.    */
 #define EXT_CH_MODE_LOW_LEVEL       5U  /**< @brief low level callback.     */
+#define EXT_CH_MODE_HIGH_LEVEL      6U  /**< @brief High level callback     */
 
 #define EXT_CH_MODE_AUTOSTART       4U  /**< @brief Channel started
                                              automatically on driver start. */

@@ -114,7 +114,7 @@ ADEFS 	  := $(DADEFS) $(UADEFS)
 LIBS      := $(DLIBS) $(ULIBS)
 
 # Various settings
-MCFLAGS   := -mcpu=$(MCU)
+MCFLAGS   := -mcpu=$(MCU) # -mfloat-abi=hard -mfpu=fpv4-sp-d16 -fsingle-precision-constant
 ODFLAGS	  = -x --syms
 ASFLAGS   = $(MCFLAGS) -Wa,-amhls=$(LSTDIR)/$(notdir $(<:.s=.lst)) $(ADEFS)
 ASXFLAGS  = $(MCFLAGS) -Wa,-amhls=$(LSTDIR)/$(notdir $(<:.S=.lst)) $(ADEFS)

@@ -86,7 +86,7 @@ void i2sStart(I2SDriver *i2sp, const I2SConfig *config) {
   osalSysLock();
   osalDbgAssert((i2sp->state == I2S_STOP) || (i2sp->state == I2S_READY),
                 "invalid state");
-  i2sp->config = config;
+  i2sp->config = (I2SConfig *) config;
   i2s_lld_start(i2sp);
   i2sp->state = I2S_READY;
   osalSysUnlock();

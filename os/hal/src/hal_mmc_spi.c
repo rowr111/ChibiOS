@@ -451,6 +451,7 @@ void mmcStop(MMCDriver *mmcp) {
  *
  * @api
  */
+
 bool mmcConnect(MMCDriver *mmcp) {
   unsigned i;
   uint8_t r3[4];
@@ -466,6 +467,7 @@ bool mmcConnect(MMCDriver *mmcp) {
 
   /* Slow clock mode and 128 clock pulses.*/
   spiStart(mmcp->config->spip, mmcp->config->lscfg);
+  spiUnselect(mmcp->config->spip); // make sure CS is high before trying to init
   spiIgnore(mmcp->config->spip, 16);
 
   /* SPI mode selection.*/
@@ -609,7 +611,8 @@ bool mmcDisconnect(MMCDriver *mmcp) {
  * @api
  */
 bool mmcStartSequentialRead(MMCDriver *mmcp, uint32_t startblk) {
-
+  uint8_t recvr1_val;
+  
   osalDbgCheck(mmcp != NULL);
   osalDbgAssert(mmcp->state == BLK_READY, "invalid state");
 
@@ -628,7 +631,8 @@ bool mmcStartSequentialRead(MMCDriver *mmcp, uint32_t startblk) {
     send_hdr(mmcp, MMCSD_CMD_READ_MULTIPLE_BLOCK, startblk * MMCSD_BLOCK_SIZE);
   }
 
-  if (recvr1(mmcp) != 0x00U) {
+  recvr1_val = recvr1(mmcp);
+  if (recvr1_val != 0x00U) {
     spiStop(mmcp->config->spip);
     mmcp->state = BLK_READY;
     return HAL_FAILED;
@@ -719,6 +723,7 @@ bool mmcStopSequentialRead(MMCDriver *mmcp) {
  * @api
  */
 bool mmcStartSequentialWrite(MMCDriver *mmcp, uint32_t startblk) {
+  uint8_t recvr1_val;
 
   osalDbgCheck(mmcp != NULL);
   osalDbgAssert(mmcp->state == BLK_READY, "invalid state");
@@ -736,9 +741,12 @@ bool mmcStartSequentialWrite(MMCDriver *mmcp, uint32_t startblk) {
              startblk * MMCSD_BLOCK_SIZE);
   }
 
-  if (recvr1(mmcp) != 0x00U) {
+  recvr1_val = recvr1(mmcp);
+  if (recvr1_val != 0x00U) {
     spiStop(mmcp->config->spip);
     mmcp->state = BLK_READY;
+    //    asm("bkpt #0");
+    //    return HAL_FAILED | recvr1_val; // OR is just to keep the value from being optimized out, remove for production
     return HAL_FAILED;
   }
   return HAL_SUCCESS;
@@ -779,6 +787,7 @@ bool mmcSequentialWrite(MMCDriver *mmcp, const uint8_t *buffer) {
   spiUnselect(mmcp->config->spip);
   spiStop(mmcp->config->spip);
   mmcp->state = BLK_READY;
+  //  asm("bkpt #0");
   return HAL_FAILED;
 }
 
@@ -799,6 +808,7 @@ bool mmcStopSequentialWrite(MMCDriver *mmcp) {
   osalDbgCheck(mmcp != NULL);
 
   if (mmcp->state != BLK_WRITING) {
+    //    asm("bkpt #0");
     return HAL_FAILED;
   }
 

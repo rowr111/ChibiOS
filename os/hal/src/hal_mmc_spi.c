@@ -49,6 +49,8 @@ static bool mmc_read(void *instance, uint32_t startblk,
 static bool mmc_write(void *instance, uint32_t startblk,
                         const uint8_t *buffer, uint32_t n);
 
+extern int sd_dbg_val;
+
 /**
  * @brief   Virtual methods table.
  */
@@ -468,7 +470,7 @@ bool mmcConnect(MMCDriver *mmcp) {
   /* Slow clock mode and 128 clock pulses.*/
   spiStart(mmcp->config->spip, mmcp->config->lscfg);
   spiUnselect(mmcp->config->spip); // make sure CS is high before trying to init
-  spiIgnore(mmcp->config->spip, 16);
+  spiIgnore(mmcp->config->spip, 10);
 
   /* SPI mode selection.*/
   i = 0;
@@ -531,6 +533,7 @@ bool mmcConnect(MMCDriver *mmcp) {
   }
 
   /* Initialization complete, full speed.*/
+  spiStop(mmcp->config->spip);
   spiStart(mmcp->config->spip, mmcp->config->hscfg);
 
   /* Setting block size.*/
@@ -745,6 +748,7 @@ bool mmcStartSequentialWrite(MMCDriver *mmcp, uint32_t startblk) {
   if (recvr1_val != 0x00U) {
     spiStop(mmcp->config->spip);
     mmcp->state = BLK_READY;
+    sd_dbg_val = recvr1_val;
     //    asm("bkpt #0");
     //    return HAL_FAILED | recvr1_val; // OR is just to keep the value from being optimized out, remove for production
     return HAL_FAILED;
@@ -784,6 +788,7 @@ bool mmcSequentialWrite(MMCDriver *mmcp, const uint8_t *buffer) {
   }
 
   /* Error.*/
+  sd_dbg_val = b[0];
   spiUnselect(mmcp->config->spip);
   spiStop(mmcp->config->spip);
   mmcp->state = BLK_READY;

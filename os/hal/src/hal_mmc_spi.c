@@ -51,6 +51,10 @@ static bool mmc_write(void *instance, uint32_t startblk,
 
 extern int sd_dbg_val;
 
+static void wait(MMCDriver *mmcp);
+static void send_hdr(MMCDriver *mmcp, uint8_t cmd, uint32_t arg);
+static uint8_t recvr1(MMCDriver *mmcp);
+
 /**
  * @brief   Virtual methods table.
  */
@@ -93,6 +97,35 @@ static const uint8_t crc7_lookup_table[256] = {
   0x62, 0x6b, 0x70, 0x79
 };
 
+// Calculate CRC16 CCITT
+// It's a 16 bit CRC with polynomial x^16 + x^12 + x^5 + 1
+// input:
+//   crcIn - the CRC before (0 for rist step)
+//   data - byte for CRC calculation
+// return: the CRC16 value
+uint16_t CRC16_one(uint16_t crcIn, uint8_t data) {
+  crcIn  = (uint8_t)(crcIn >> 8)|(crcIn << 8);
+  crcIn ^=  data;
+  crcIn ^= (uint8_t)(crcIn & 0xff) >> 4;
+  crcIn ^= (crcIn << 8) << 4;
+  crcIn ^= ((crcIn & 0xff) << 4) << 1;
+
+  return crcIn;
+}
+
+// Calculate CRC16 CCITT value of the buffer
+// input:
+//   pBuf - pointer to the buffer
+//   len - length of the buffer
+// return: the CRC16 value
+uint16_t CRC16_buf(const uint8_t * pBuf, uint16_t len) {
+  uint16_t crc = 0;
+
+  while (len--) crc = CRC16_one(crc,*pBuf++);
+
+  return crc;
+}
+
 /*===========================================================================*/
 /* Driver local functions.                                                   */
 /*===========================================================================*/
@@ -120,23 +153,79 @@ static bool mmc_read(void *instance, uint32_t startblk,
 
 static bool mmc_write(void *instance, uint32_t startblk,
                  const uint8_t *buffer, uint32_t n) {
+  
+  if( n == 1 ) {
+    uint8_t recvr1_val;
+    MMCDriver *mmcp = instance;
+    static const uint8_t start[] = {0xFF, 0xFE};
+    uint16_t crc;
+    uint8_t b[1];
+    
+    osalDbgAssert(mmcp->state == BLK_READY, "invalid state");
 
-  if (mmcStartSequentialWrite((MMCDriver *)instance, startblk)) {
-    return HAL_FAILED;
-  }
+    /* Write operation in progress.*/
+    mmcp->state = BLK_WRITING;
 
-  while (n > 0U) {
-    if (mmcSequentialWrite((MMCDriver *)instance, buffer)) {
+    // send the write command + address
+    // spiStart(mmcp->config->spip, mmcp->config->hscfg); // this is redundant!
+    spiSelect(mmcp->config->spip);
+    if (mmcp->block_addresses) {
+      send_hdr(mmcp, MMCSD_CMD_WRITE_BLOCK, startblk);
+    }
+    else {
+      send_hdr(mmcp, MMCSD_CMD_WRITE_BLOCK, startblk * MMCSD_BLOCK_SIZE);
+    }
+
+    recvr1_val = recvr1(mmcp);
+    if (recvr1_val != 0x00U) {
+      // spiStop(mmcp->config->spip);
+      mmcp->state = BLK_READY;
+      sd_dbg_val = recvr1_val;
+      //    asm("bkpt #0");
+      //    return HAL_FAILED | recvr1_val; // OR is just to keep the value from being optimized out, remove for production
       return HAL_FAILED;
     }
-    buffer += MMCSD_BLOCK_SIZE;
-    n--;
-  }
 
-  if (mmcStopSequentialWrite((MMCDriver *)instance)) {
+    // send the singe data block block
+    spiSend(mmcp->config->spip, sizeof(start), start);    /* Data prologue.   */
+    spiSend(mmcp->config->spip, MMCSD_BLOCK_SIZE, buffer);/* Data.            */
+    crc = CRC16_buf(buffer, MMCSD_BLOCK_SIZE);
+    spiSend(mmcp->config->spip, sizeof(uint16_t), &crc);  /* CRC              */
+    spiReceive(mmcp->config->spip, 1, b);
+    if ((b[0] & 0x1FU) == 0x05U) {
+      wait(mmcp);
+      spiUnselect(mmcp->config->spip);
+      
+      /* Write operation finished.*/
+      mmcp->state = BLK_READY;
+      return HAL_SUCCESS;
+    }
+
+    /* Error.*/
+    sd_dbg_val = b[0];
+    spiUnselect(mmcp->config->spip);
+    // spiStop(mmcp->config->spip);
+    mmcp->state = BLK_READY;
+    //  asm("bkpt #0");
     return HAL_FAILED;
+  } else {
+    if (mmcStartSequentialWrite((MMCDriver *)instance, startblk)) {
+      return HAL_FAILED;
+    }
+    
+    while (n > 0U) {
+      if (mmcSequentialWrite((MMCDriver *)instance, buffer)) {
+	return HAL_FAILED;
+      }
+      buffer += MMCSD_BLOCK_SIZE;
+      n--;
+    }
+    
+    if (mmcStopSequentialWrite((MMCDriver *)instance)) {
+      return HAL_FAILED;
+    }
+    return HAL_SUCCESS;
   }
-  return HAL_SUCCESS;
 }
 
 /**
@@ -468,6 +557,7 @@ bool mmcConnect(MMCDriver *mmcp) {
   mmcp->block_addresses = false;
 
   /* Slow clock mode and 128 clock pulses.*/
+  spiStop(mmcp->config->spip);  // stop in case we happen to be running already
   spiStart(mmcp->config->spip, mmcp->config->lscfg);
   spiUnselect(mmcp->config->spip); // make sure CS is high before trying to init
   spiIgnore(mmcp->config->spip, 10);
@@ -771,6 +861,7 @@ bool mmcStartSequentialWrite(MMCDriver *mmcp, uint32_t startblk) {
 bool mmcSequentialWrite(MMCDriver *mmcp, const uint8_t *buffer) {
   static const uint8_t start[] = {0xFF, 0xFC};
   uint8_t b[1];
+  uint16_t crc;
 
   osalDbgCheck((mmcp != NULL) && (buffer != NULL));
 
@@ -780,7 +871,10 @@ bool mmcSequentialWrite(MMCDriver *mmcp, const uint8_t *buffer) {
 
   spiSend(mmcp->config->spip, sizeof(start), start);    /* Data prologue.   */
   spiSend(mmcp->config->spip, MMCSD_BLOCK_SIZE, buffer);/* Data.            */
-  spiIgnore(mmcp->config->spip, 2);                     /* CRC ignored.     */
+  //  spiIgnore(mmcp->config->spip, 2);                     /* CRC ignored.     */
+  crc = CRC16_buf(buffer, MMCSD_BLOCK_SIZE);
+  spiSend(mmcp->config->spip, sizeof(uint16_t), &crc);  /* CRC              */
+  
   spiReceive(mmcp->config->spip, 1, b);
   if ((b[0] & 0x1FU) == 0x05U) {
     wait(mmcp);

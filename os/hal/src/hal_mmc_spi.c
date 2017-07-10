@@ -154,7 +154,7 @@ static bool mmc_read(void *instance, uint32_t startblk,
 static bool mmc_write(void *instance, uint32_t startblk,
                  const uint8_t *buffer, uint32_t n) {
   
-  if( n == 1 ) {
+  if( /* n == 1 */ 0 ) {
     uint8_t recvr1_val;
     MMCDriver *mmcp = instance;
     static const uint8_t start[] = {0xFF, 0xFE};
@@ -186,10 +186,10 @@ static bool mmc_write(void *instance, uint32_t startblk,
       return HAL_FAILED;
     }
 
-    // send the singe data block block
+    // send the single data block block
+    crc = CRC16_buf(buffer, MMCSD_BLOCK_SIZE);
     spiSend(mmcp->config->spip, sizeof(start), start);    /* Data prologue.   */
     spiSend(mmcp->config->spip, MMCSD_BLOCK_SIZE, buffer);/* Data.            */
-    crc = CRC16_buf(buffer, MMCSD_BLOCK_SIZE);
     spiSend(mmcp->config->spip, sizeof(uint16_t), &crc);  /* CRC              */
     spiReceive(mmcp->config->spip, 1, b);
     if ((b[0] & 0x1FU) == 0x05U) {

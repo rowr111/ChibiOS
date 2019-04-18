@@ -49,8 +49,6 @@ static bool mmc_read(void *instance, uint32_t startblk,
 static bool mmc_write(void *instance, uint32_t startblk,
                         const uint8_t *buffer, uint32_t n);
 
-extern int sd_dbg_val;
-
 static void wait(MMCDriver *mmcp);
 static void send_hdr(MMCDriver *mmcp, uint8_t cmd, uint32_t arg);
 static uint8_t recvr1(MMCDriver *mmcp);
@@ -180,7 +178,6 @@ static bool mmc_write(void *instance, uint32_t startblk,
     if (recvr1_val != 0x00U) {
       // spiStop(mmcp->config->spip);
       mmcp->state = BLK_READY;
-      sd_dbg_val = recvr1_val;
       //    asm("bkpt #0");
       //    return HAL_FAILED | recvr1_val; // OR is just to keep the value from being optimized out, remove for production
       return HAL_FAILED;
@@ -202,7 +199,6 @@ static bool mmc_write(void *instance, uint32_t startblk,
     }
 
     /* Error.*/
-    sd_dbg_val = b[0];
     spiUnselect(mmcp->config->spip);
     // spiStop(mmcp->config->spip);
     mmcp->state = BLK_READY;
@@ -838,7 +834,6 @@ bool mmcStartSequentialWrite(MMCDriver *mmcp, uint32_t startblk) {
   if (recvr1_val != 0x00U) {
     spiStop(mmcp->config->spip);
     mmcp->state = BLK_READY;
-    sd_dbg_val = recvr1_val;
     //    asm("bkpt #0");
     //    return HAL_FAILED | recvr1_val; // OR is just to keep the value from being optimized out, remove for production
     return HAL_FAILED;
@@ -882,7 +877,6 @@ bool mmcSequentialWrite(MMCDriver *mmcp, const uint8_t *buffer) {
   }
 
   /* Error.*/
-  sd_dbg_val = b[0];
   spiUnselect(mmcp->config->spip);
   spiStop(mmcp->config->spip);
   mmcp->state = BLK_READY;
